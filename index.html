@@ -12,67 +12,64 @@
     table {
       margin: auto;
       border-collapse: collapse;
-      min-width: 760px;
+      min-width: 780px;
     }
     th, td {
       border: 1px solid #ccc;
       padding: 10px 15px;
-      min-width: 80px;
+      min-width: 90px;
       cursor: pointer;
       user-select: none;
     }
-    th {
-      background-color: #eee;
-    }
-    /* 三种状态颜色 */
-    .busy       { background-color: lightcoral; }  /* 红：没空 */
-    .available  { background-color: lightgreen; }  /* 绿：有空 */
-    .maybe      { background-color: #fff59d;   }  /* 黄：可能有空 */
-
-    /* 左侧时间段单元格样式 */
-    td:first-child {
-      cursor: default;
-      background-color: #fafafa;
-      font-weight: bold;
+    th { background-color: #eee; cursor: default; }
+    /* 状态颜色 */
+    .available { background-color: lightgreen; }
+    .maybe     { background-color: #fff59d; }
+    .busy      { background-color: lightcoral; }
+    /* 左侧时间段 */
+    td:first-child { background-color: #fafafa; font-weight: bold; cursor: default; }
+    /* 重置按钮样式 */
+    .reset-btn {
+      font-size: 12px; margin-bottom: 4px; padding: 2px 6px;
     }
   </style>
 </head>
 <body>
   <h1>7人共享日程表</h1>
   <p>
-    点击格子在
+    默认空白，点击进入
     <span style="color:lightgreen">有空</span> →
     <span style="color:#fff59d">可能有空</span> →
-    <span style="color:lightcoral">没空</span>
-    三种状态之间循环。
+    <span style="color:lightcoral">没空</span> →
+    循环。每列顶部按钮可一键重置该成员全部状态。
   </p>
 
   <table id="scheduleTable">
     <thead>
       <tr>
         <th>时间段</th>
-        <th>翁</th>
-        <th>郭</th>
-        <th>董</th>
-        <th>施</th>
-        <th>熊</th>
-        <th>壁画很多的高</th>
-        <th>高</th>
+        <th><button class="reset-btn" data-person="翁">重置</button><br>翁</th>
+        <th><button class="reset-btn" data-person="郭">重置</button><br>郭</th>
+        <th><button class="reset-btn" data-person="董">重置</button><br>董</th>
+        <th><button class="reset-btn" data-person="施">重置</button><br>施</th>
+        <th><button class="reset-btn" data-person="熊">重置</button><br>熊</th>
+        <th><button class="reset-btn" data-person="壁画很多的高">重置</button><br>壁画很多的高</th>
+        <th><button class="reset-btn" data-person="高">重置</button><br>高</th>
       </tr>
     </thead>
     <tbody id="scheduleBody"></tbody>
   </table>
 
   <script>
-    // 基本数据
-    const days   = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    // 数据定义
+    const days    = ['周五', '周六', '周日'];   // 去掉周一~周四
     const periods = ['上午', '下午', '晚上'];
-    const people = ['翁', '郭', '董', '施', '熊', '壁画很多的高', '高'];
-    const STATES = ['busy', 'available', 'maybe']; // 状态循环顺序
+    const people  = ['翁', '郭', '董', '施', '熊', '壁画很多的高', '高'];
+    const STATES  = ['available', 'maybe', 'busy']; // 循环顺序
 
     const tableBody = document.getElementById('scheduleBody');
 
-    // 动态生成表格（默认 busy = 没空）
+    // 生成表格 (默认空白，无状态类)
     days.forEach(day => {
       periods.forEach(period => {
         const row = document.createElement('tr');
@@ -82,8 +79,7 @@
 
         people.forEach(person => {
           const cell = document.createElement('td');
-          cell.classList.add('busy');
-          cell.dataset.time = `${day}_${period}`;
+          cell.dataset.time   = `${day}_${period}`;
           cell.dataset.person = person;
           row.appendChild(cell);
         });
@@ -93,12 +89,12 @@
     });
   </script>
 
-  <!-- Firebase SDK 兼容版 -->
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 
   <script>
-    // Firebase 配置（保持你的密钥信息不变）
+    // Firebase 配置
     const firebaseConfig = {
       apiKey: "AIzaSyBPK4UAPp7l4TUX394YALfqaRAOk0Ectd0",
       authDomain: "schedule-4a6a7.firebaseapp.com",
@@ -106,58 +102,70 @@
       projectId: "schedule-4a6a7",
       storageBucket: "schedule-4a6a7.firebasestorage.app",
       messagingSenderId: "33975824974",
-      appId: "1:33975824974:web:f784d34d2ffe2a2ee4c91f",
-      measurementId: "G-JP7PD9ECEQ"
+      appId: "1:33975824974:web:f784d34d2ffe2a2ee4c91f"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    /**
-     * 将状态写入 Firebase
-     * @param {string} time    e.g. "周一_上午"
-     * @param {string} person  e.g. "翁"
-     * @param {string} state   "busy" | "available" | "maybe"
-     */
-    function updateSchedule(time, person, state) {
-      db.ref(`schedule/${time}/${person}`).set(state);
+    // 写入状态 (state 为 null 时删除节点)
+    function setState(time, person, state) {
+      const ref = db.ref(`schedule/${time}/${person}`);
+      if (state) ref.set(state); else ref.remove();
     }
 
-    /**
-     * 从 Firebase 获取数据并更新界面
-     */
+    // 加载数据并渲染
     function loadSchedule() {
-      db.ref('schedule').on('value', snapshot => {
-        const data = snapshot.val() || {};
+      db.ref('schedule').on('value', snap => {
+        const data = snap.val() || {};
         document.querySelectorAll('td[data-time]').forEach(cell => {
           const { time, person } = cell.dataset;
-          const state = data[time]?.[person] || 'busy';
-          cell.classList.remove('busy', 'available', 'maybe');
-          cell.classList.add(state);
+          const state = data[time]?.[person] || null;
+          cell.classList.remove('available', 'maybe', 'busy');
+          if (state) cell.classList.add(state);
         });
       });
     }
 
-    /**
-     * 给所有可点击单元格绑定点击事件，实现三状态循环
-     */
-    function bindClickEvents() {
+    // 单元格点击：从空白开始进入循环
+    function bindCellClicks() {
       document.querySelectorAll('td[data-time]').forEach(cell => {
         cell.addEventListener('click', () => {
-          const currentState = STATES.find(s => cell.classList.contains(s)) || 'busy';
-          const nextState = STATES[(STATES.indexOf(currentState) + 1) % STATES.length];
-
+          const current = STATES.find(s => cell.classList.contains(s)) || null; // null 表示空白
+          let next;
+          if (current === null) {
+            next = 'available';
+          } else {
+            next = STATES[(STATES.indexOf(current) + 1) % STATES.length];
+          }
+          // 更新本地样式
+          cell.classList.remove('available', 'maybe', 'busy');
+          if (next) cell.classList.add(next);
+          // 写入 / 删除 数据
           const { time, person } = cell.dataset;
-          cell.classList.remove(currentState);
-          cell.classList.add(nextState);
-          updateSchedule(time, person, nextState);
+          setState(time, person, next);
+        });
+      });
+    }
+
+    // 列重置按钮
+    function bindResetButtons() {
+      document.querySelectorAll('.reset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const person = btn.dataset.person;
+          // 遍历所有时间段，为该 person 删除数据
+          document.querySelectorAll(`td[data-person='${person}']`).forEach(cell => {
+            cell.classList.remove('available', 'maybe', 'busy');
+            const { time } = cell.dataset;
+            setState(time, person, null);
+          });
         });
       });
     }
 
     // 初始化
     loadSchedule();
-    bindClickEvents();
+    bindCellClicks();
+    bindResetButtons();
   </script>
 </body>
 </html>
