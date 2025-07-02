@@ -12,24 +12,24 @@
     table {
       margin: auto;
       border-collapse: collapse;
-      min-width: 700px;
+      min-width: 760px;
     }
     th, td {
       border: 1px solid #ccc;
       padding: 10px 15px;
-      min-width: 70px;
+      min-width: 80px;
       cursor: pointer;
       user-select: none;
     }
     th {
       background-color: #eee;
     }
-    .available {
-      background-color: lightgreen;
-    }
-    .unavailable {
-      background-color: #f0f0f0;
-    }
+    /* 三种状态颜色 */
+    .busy       { background-color: lightcoral; }  /* 红：没空 */
+    .available  { background-color: lightgreen; }  /* 绿：有空 */
+    .maybe      { background-color: #fff59d;   }  /* 黄：可能有空 */
+
+    /* 左侧时间段单元格样式 */
     td:first-child {
       cursor: default;
       background-color: #fafafa;
@@ -39,7 +39,14 @@
 </head>
 <body>
   <h1>7人共享日程表</h1>
-  <p>点击格子切换“有空 / 无空”状态，数据会自动同步到 Firebase。</p>
+  <p>
+    点击格子在
+    <span style="color:lightgreen">有空</span> →
+    <span style="color:#fff59d">可能有空</span> →
+    <span style="color:lightcoral">没空</span>
+    三种状态之间循环。
+  </p>
+
   <table id="scheduleTable">
     <thead>
       <tr>
@@ -49,7 +56,7 @@
         <th>董</th>
         <th>施</th>
         <th>熊</th>
-        <th>高（壁画很多）</th>
+        <th>壁画很多的高</th>
         <th>高</th>
       </tr>
     </thead>
@@ -57,12 +64,15 @@
   </table>
 
   <script>
-    const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    // 基本数据
+    const days   = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     const periods = ['上午', '下午', '晚上'];
-    const people = ['翁', '郭', '董', '施', '熊', '高大', '高小'];
+    const people = ['翁', '郭', '董', '施', '熊', '壁画很多的高', '高'];
+    const STATES = ['busy', 'available', 'maybe']; // 状态循环顺序
+
     const tableBody = document.getElementById('scheduleBody');
 
-    // 生成表格行和格子，不绑定点击事件
+    // 动态生成表格（默认 busy = 没空）
     days.forEach(day => {
       periods.forEach(period => {
         const row = document.createElement('tr');
@@ -72,7 +82,7 @@
 
         people.forEach(person => {
           const cell = document.createElement('td');
-          cell.classList.add('unavailable');
+          cell.classList.add('busy');
           cell.dataset.time = `${day}_${period}`;
           cell.dataset.person = person;
           row.appendChild(cell);
@@ -83,12 +93,12 @@
     });
   </script>
 
-  <!-- 引入 Firebase 兼容版 SDK -->
+  <!-- Firebase SDK 兼容版 -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 
   <script>
-    // 你的 Firebase 配置信息
+    // Firebase 配置（保持你的密钥信息不变）
     const firebaseConfig = {
       apiKey: "AIzaSyBPK4UAPp7l4TUX394YALfqaRAOk0Ectd0",
       authDomain: "schedule-4a6a7.firebaseapp.com",
@@ -100,48 +110,52 @@
       measurementId: "G-JP7PD9ECEQ"
     };
 
-    // 初始化 Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 更新数据库中的“是否有空”状态
-    function updateSchedule(time, person, available) {
-      db.ref(`schedule/${time}/${person}`).set(available)
-        .then(() => console.log(`写入成功: ${time} ${person} = ${available}`))
-        .catch(err => console.error('写入失败:', err));
+    /**
+     * 将状态写入 Firebase
+     * @param {string} time    e.g. "周一_上午"
+     * @param {string} person  e.g. "翁"
+     * @param {string} state   "busy" | "available" | "maybe"
+     */
+    function updateSchedule(time, person, state) {
+      db.ref(`schedule/${time}/${person}`).set(state);
     }
 
-    // 监听数据库变化，更新表格显示
+    /**
+     * 从 Firebase 获取数据并更新界面
+     */
     function loadSchedule() {
       db.ref('schedule').on('value', snapshot => {
         const data = snapshot.val() || {};
         document.querySelectorAll('td[data-time]').forEach(cell => {
           const { time, person } = cell.dataset;
-          if (data[time] && data[time][person]) {
-            cell.classList.add('available');
-            cell.classList.remove('unavailable');
-          } else {
-            cell.classList.remove('available');
-            cell.classList.add('unavailable');
-          }
+          const state = data[time]?.[person] || 'busy';
+          cell.classList.remove('busy', 'available', 'maybe');
+          cell.classList.add(state);
         });
       });
     }
 
-    // 绑定点击事件，切换状态并写数据库
+    /**
+     * 给所有可点击单元格绑定点击事件，实现三状态循环
+     */
     function bindClickEvents() {
       document.querySelectorAll('td[data-time]').forEach(cell => {
         cell.addEventListener('click', () => {
-          const current = cell.classList.contains('available');
+          const currentState = STATES.find(s => cell.classList.contains(s)) || 'busy';
+          const nextState = STATES[(STATES.indexOf(currentState) + 1) % STATES.length];
+
           const { time, person } = cell.dataset;
-          updateSchedule(time, person, !current);
-          // 本地先切换，数据库回调同步最终状态
-          cell.classList.toggle('available', !current);
-          cell.classList.toggle('unavailable', current);
+          cell.classList.remove(currentState);
+          cell.classList.add(nextState);
+          updateSchedule(time, person, nextState);
         });
       });
     }
 
+    // 初始化
     loadSchedule();
     bindClickEvents();
   </script>
